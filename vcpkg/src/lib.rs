@@ -109,6 +109,8 @@ pub struct Config {
 
     /// override VCPKG_ROOT environment variable
     vcpkg_root: Option<PathBuf>,
+
+    target: Option<TargetTriplet>,
 }
 
 /// Details of a package that was found
@@ -142,6 +144,7 @@ pub struct Library {
     pub ports: Vec<String>,
 }
 
+#[derive(Clone)]
 struct TargetTriplet {
     triplet: String,
     is_static: bool,
@@ -623,6 +626,36 @@ impl Config {
         }
     }
 
+    fn get_target(&mut self) -> Result<TargetTriplet, Error> {
+        if self.target.is_none() {
+            let target = try!(msvc_target());
+            self.target.replace(target);
+        }
+        
+        Ok(self.target.as_ref().unwrap().clone())
+    }
+
+    pub fn set_target<S: AsRef<str>>(&mut self, triplet: S) {
+        let triplet = triplet.as_ref();
+        self.target.replace(
+            if triplet.contains("windows") {
+                TargetTriplet {
+                    triplet: triplet.into(),
+                    is_static: triplet.contains("-static"),
+                    lib_suffix: "lib".into(),
+                    strip_lib_prefix: false,
+                }
+            } else {
+                TargetTriplet {
+                    triplet: triplet.into(),
+                    is_static: true,
+                    lib_suffix: "a".into(),
+                    strip_lib_prefix: true,
+                }
+            }
+        );
+    }
+
     /// Find the package `port_name` in a Vcpkg tree.
     ///
     /// Emits cargo metadata to link to libraries provided by the Vcpkg package/port
@@ -634,7 +667,7 @@ impl Config {
     pub fn find_package(&mut self, port_name: &str) -> Result<Library, Error> {
         // determine the target type, bailing out if it is not some
         // kind of msvc
-        let msvc_target = try!(msvc_target());
+        let msvc_target = try!(self.get_target());
 
         // bail out if requested to not try at all
         if env::var_os("VCPKGRS_DISABLE").is_some() {
@@ -824,7 +857,7 @@ impl Config {
     pub fn probe(&mut self, port_name: &str) -> Result<Library, Error> {
         // determine the target type, bailing out if it is not some
         // kind of msvc
-        let msvc_target = try!(msvc_target());
+        let msvc_target = try!(self.get_target());
 
         // bail out if requested to not try at all
         if env::var_os("VCPKGRS_DISABLE").is_some() {
